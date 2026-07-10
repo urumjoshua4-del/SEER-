@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SEER - Video Calling</title>
+    
+    <link rel="icon" type="image/x-icon" href="seer.jpg">
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            background-color: #1c1c1e;
+            overflow: hidden;
+            color: white;
+        }
+
+        /* Video Container Area */
+        .video-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+        }
+
+        /* Fullscreen remote video */
+        #remote-video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: 1;
+        }
+
+        /* Floating local camera view (Dynamic fluid adjustments for mobile) */
+        #local-video {
+            width: 28vw;
+            max-width: 140px;
+            min-width: 90px;
+            height: auto;
+            aspect-ratio: 2 / 3;
+            object-fit: cover;
+            border-radius: 12px;
+            background-color: #2c2c2e;
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 10;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            transform: scaleX(-1);
+            transition: all 0.3s ease;
+        }
+
+        /* Setup / Connection Overlay (Fluid widths) */
+        .setup-overlay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            background: rgba(44, 44, 46, 0.75);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 12px 16px;
+            border-radius: 16px;
+            width: calc(100% - 40px);
+            max-width: 300px;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Responsive Breakpoint for Mobile Viewports */
+        @media (max-width: 480px) {
+            .setup-overlay {
+                max-width: calc(100% - 40px);
+                width: 100%;
+                top: auto;
+                bottom: 120px; 
+                left: 20px;
+            }
+            #local-video {
+                top: 20px;
+                right: 20px;
+                width: 100px;
+            }
+        }
+
+        .setup-overlay h1 {
+            font-size: 18px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            margin-bottom: 4px;
+            color: #34c759;
+        }
+
+        .id-display {
+            font-size: 12px;
+            color: #aeaeb2;
+            margin-bottom: 10px;
+            word-break: break-all;
+        }
+
+        .connect-box {
+            display: flex;
+            gap: 8px;
+        }
+
+        input {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            padding: 10px;
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+            outline: none;
+            width: 100%;
+        }
+
+        input::placeholder {
+            color: #8e8e93;
+        }
+
+        .btn {
+            border: none;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .btn-call {
+            background-color: #34c759;
+            color: white;
+        }
+        .btn-call:hover { background-color: #28a745; }
+
+        /* Bottom Controls Bar */
+        .controls-bar {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            display: flex;
+            gap: 16px;
+            background: rgba(44, 44, 46, 0.65);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 10px 20px;
+            border-radius: 30px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            align-items: center;
+        }
+
+        .circle-btn {
+            width: 46px;
+            height: 46px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            transition: all 0.2s ease;
+        }
+
+        .circle-btn:hover { background: rgba(255, 255, 255, 0.2); }
+        .circle-btn.end-call { background-color: #ff3b30; }
+        .circle-btn.end-call:hover { background-color: #d32f2f; }
+        
+        .active-toggle {
+            background-color: white;
+            color: black;
+        }
+        .active-toggle:hover { background-color: #e5e5ea; }
+    </style>
+</head>
+<body>
+
+    <div class="video-container">
+        <video id="remote-video" autoplay playsinline></video>
+        <video id="local-video" autoplay muted playsinline></video>
+
+        <div class="setup-overlay">
+            <h1>SEER</h1>
+            <div class="id-display" id="my-id-text">Initializing address...</div>
+            <div class="connect-box">
+                <input type="text" id="remote-id-input" placeholder="Enter Friend's ID">
+                <button class="btn btn-call" id="call-button">Call</button>
+            </div>
+        </div>
+
+        <div class="controls-bar">
+            <button class="circle-btn" id="mute-btn" title="Mute Audio">🎙️</button>
+            <button class="circle-btn end-call" id="hangup-button" title="End Call">🛑</button>
+            <button class="circle-btn" id="video-btn" title="Toggle Camera">📷</button>
+        </div>
+    </div>
+
+    <script>
+        const localVideo = document.getElementById('local-video');
+        const remoteVideo = document.getElementById('remote-video');
+        const myIdText = document.getElementById('my-id-text');
+        const remoteIdInput = document.getElementById('remote-id-input');
+        const callButton = document.getElementById('call-button');
+        const hangupButton = document.getElementById('hangup-button');
+        const muteBtn = document.getElementById('mute-btn');
+        const videoBtn = document.getElementById('video-btn');
+
+        let localStream = null;
+        let peer = null;
+        let currentCall = null;
+
+        function dynamicHyphenate(inputStr) {
+            const clean = inputStr.replace(/-/g, '');
+            if(clean.length < 10) return clean;
+            return `${clean.substring(0, 5)}-${clean.substring(5, 9)}-${clean.substring(9, 16)}-${clean.substring(16)}`;
+        }
+
+        async function initMedia() {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } }, 
+                    audio: true 
+                });
+                localVideo.srcObject = localStream;
+                initPeer();
+            } catch (error) {
+                console.error("Hardware entry failure:", error);
+                myIdText.innerText = "Error: System device permissions denied.";
+            }
+        }
+
+        function initPeer() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlRoom = urlParams.get('room');
+            const cleanWireId = urlRoom ? urlRoom.replace(/-/g, '') : null;
+
+            peer = cleanWireId ? new Peer(cleanWireId) : new Peer();
+
+            peer.on('open', (id) => {
+                const displayId = urlRoom ? urlRoom : dynamicHyphenate(id);
+                myIdText.innerHTML = `Your SEER ID:<br><strong style="user-select:all; color:#34c759;">${displayId}</strong>`;
+                
+                if (!urlRoom) {
+                    const currentUrl = new URL(window.location.href);
+                    currentUrl.searchParams.set('room', displayId);
+                    window.history.replaceState({}, '', currentUrl);
+                }
+            });
+
+            peer.on('call', (incomingCall) => {
+                currentCall = incomingCall;
+                incomingCall.answer(localStream);
+                handleCallStreams(incomingCall);
+            });
+        }
+
+        function handleCallStreams(call) {
+            call.on('stream', (remoteStream) => {
+                remoteVideo.srcObject = remoteStream;
+            });
+            call.on('close', () => { endCallUI(); });
+        }
+
+        callButton.addEventListener('click', () => {
+            const remoteId = remoteIdInput.value.trim().replace(/-/g, '');
+            if (!remoteId) return alert("Please enter a valid peer ID.");
+
+            currentCall = peer.call(remoteId, localStream);
+            handleCallStreams(currentCall);
+        });
+
+        hangupButton.addEventListener('click', () => {
+            if (currentCall) currentCall.close();
+            endCallUI();
+            const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.location.href = cleanUrl;
+        });
+
+        function endCallUI() {
+            remoteVideo.srcObject = null;
+            currentCall = null;
+        }
+
+        muteBtn.addEventListener('click', () => {
+            const audioTrack = localStream.getAudioTracks()[0];
+            if(audioTrack) {
+                audioTrack.enabled = !audioTrack.enabled;
+                muteBtn.classList.toggle('active-toggle', !audioTrack.enabled);
+            }
+        });
+
+        videoBtn.addEventListener('click', () => {
+            const videoTrack = localStream.getVideoTracks()[0];
+            if(videoTrack) {
+                videoTrack.enabled = !videoTrack.enabled;
+                videoBtn.classList.toggle('active-toggle', !videoTrack.enabled);
+            }
+        });
+
+        initMedia();
+    </script>
+</body>
+</html>
